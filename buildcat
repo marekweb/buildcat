@@ -1,0 +1,52 @@
+#!/bin/bash
+SOURCE=$1
+
+if [[ ! $SOURCE ]]; then
+	echo "Usage: $0 <sourcefile>"
+	exit 1
+fi
+
+output_target() {
+	if [[ "$TARGET" && "$GROUP" ]]; then
+		read -r OUTPUT FILTER < <(echo $TARGET | tr ":" " ")
+		mkdir -p $(dirname $OUTPUT)
+		if [ "$FILTER" ]; then
+			COMMAND="cat $GROUP | $FILTER > $OUTPUT"
+		else
+			COMMAND="cat $GROUP > $OUTPUT"
+		fi
+
+		# Just dry run for now		
+		echo $COMMAND
+		
+	fi
+}
+
+read_list() {
+	cat "$SOURCE" | sed -e 's/\s+//g' | grep ^[^#] 
+}
+
+# Pipe items from read_list
+while read ITEM;
+do
+	# First character defines a command
+	FIRST="$(echo $ITEM | head -c 1)"
+	if [ $FIRST = "@" ]; then
+		output_target
+		GROUP=""
+		TARGET="$(echo $ITEM | tail -c +2)"
+	else
+		if false && [[ ! -f $ITEM ]]; then
+			echo "WARN: missing file $ITEM"
+
+		else 
+			GROUP+=" $ITEM"
+		fi
+	fi
+done < <(read_list)
+
+
+
+output_target
+
+
