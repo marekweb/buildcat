@@ -1,13 +1,78 @@
-#!/bin/bash
+#!/usr/bin/env bash
+
+# buildcat
+# (c) 2013 @marekweb
+
+shopt -s nullglob # Make non-matching globs result in empty strings.
+set -e # Abort on errors
+
 SOURCE=$1
+
+SELF=$(basename $0)
 
 if [[ ! $SOURCE ]]; then
 	echo "Usage: $0 <sourcefile>"
 	exit 1
 fi
 
+expand_patterns() {
+	while read ITEM; do
+		# Expand globs and separate them into lines
+		echo $ITEM | tr ' ' '\n'
+	done | clear_blank_lines
+}
+
+resolve_relative_paths() {
+	local BASEPATH=$1
+	while read ITEM; do
+		resolve_relative_path "$(dirname "$BASEPATH")" "$ITEM" | tr ' ' '\n'
+	done 
+}
+
+filter_files() {
+	while read ITEM; do
+		if [ -f "$ITEM" ]; then
+			echo $ITEM
+		fi
+	done
+}
+
+
+# Take a BASE directry
+resolve_relative_path() {
+	local BASEPATH=$1
+	local FILEPATH=$2
+
+	(
+		cd "$BASEPATH"
+		readlink -f "$FILEPATH"
+	)
+}
+
+clear_blank_lines() {
+	grep -v '^$'
+}
+clear_comment_lines() {
+	grep '^[^#]'
+}
+
+# Credit: Jeet Sukumaran http://jeetworks.org/node/94
+deduplicate() {
+	awk '{ if (!h[$0]) { print $0; h[$0]=1 } }'
+}
+
+fmt_fg_green=`tput setaf 2`
+fmt_bold=`tput bold`
+fmt_normal=`tput sgr0`
+fmt_fg_blue=`tput setaf 4`
+
 output_target() {
+	local TARGET="$1"
+	local GROUP="$2"
+	#echo "OUTPUTTING $TARGET x $GROUP"
 	if [[ "$TARGET" && "$GROUP" ]]; then
+
+		GROUP=$( echo "$GROUP" | tr ' ' '\n' | expand_patterns | clear_blank_lines | resolve_relative_paths | deduplicate | filter_files )
 		read -r OUTPUT FILTER < <(echo $TARGET | tr ":" " ")
 		mkdir -p $(dirname $OUTPUT)
 		if [ "$FILTER" ]; then
@@ -15,38 +80,45 @@ output_target() {
 		else
 			COMMAND="cat $GROUP > $OUTPUT"
 		fi
-
-		# Just dry run for now		
-		echo $COMMAND
+		
+		echo "${fmt_fg_blue}$SELF: ${fmt_fg_green}building ${fmt_bold}$OUTPUT${fmt_normal}"
+		#echo "Running command: $COMMAND"
+		eval $COMMAND
 		
 	fi
 }
 
+get_first_character() {
+	echo $1 | head -c 1
+}
+get_rest_of_line() {
+	echo $@ | tail -c +2
+}
+
 read_list() {
-	cat "$SOURCE" | sed -e 's/\s+//g' | grep ^[^#] 
+	cat "$SOURCE" | sed -e 's/^\s*//g' | clear_blank_lines | clear_comment_lines
+}
+
+main() {
+	read_list | parse_list
 }
 
 # Pipe items from read_list
-while read ITEM;
-do
-	# First character defines a command
-	FIRST="$(echo $ITEM | head -c 1)"
-	if [ $FIRST = "@" ]; then
-		output_target
-		GROUP=""
-		TARGET="$(echo $ITEM | tail -c +2)"
-	else
-		if false && [[ ! -f $ITEM ]]; then
-			echo "WARN: missing file $ITEM"
-
-		else 
+parse_list() {
+	local GROUP
+	local TARGET
+	while read ITEM; do
+		# First character defines a command
+		if [ "$(get_first_character $ITEM)" = "@" ]; then
+			output_target "$TARGET" "$GROUP"
+			GROUP=""
+			TARGET="$(get_rest_of_line "$ITEM")"
+		else
 			GROUP+=" $ITEM"
 		fi
-	fi
-done < <(read_list)
+	done
+	output_target "$TARGET" "$GROUP"
+}
 
-
-
-output_target
-
+main
 
